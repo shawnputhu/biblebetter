@@ -20,6 +20,7 @@ const BASE = import.meta.env.BASE_URL;
 
 export default function App() {
   const [phase, setPhase] = useState<'loading' | 'auth' | 'ready'>('loading');
+  const [recovering, setRecovering] = useState(false);
   const booted = useRef(false);
   const settings = useSettings();
   useTheme(settings.theme);
@@ -42,44 +43,90 @@ export default function App() {
       setSession(data.session);
       if (data.session) void boot(); else setPhase('auth');
     });
-    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => {
+    const { data: sub } = supabase.auth.onAuthStateChange((e, s) => {
       setSession(s);
+      if (e === 'PASSWORD_RECOVERY') { setRecovering(true); return; }
       if (s) void boot();
     });
     return () => sub.subscription.unsubscribe();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  if (recovering) return <SetPassword onDone={() => { setRecovering(false); void boot(); }} />;
   if (phase === 'loading') return <div className="auth"><img src={BASE + 'icon-192.png'} alt="" style={{ width: 56, borderRadius: 16 }} /></div>;
   if (phase === 'auth') return <Auth />;
   return <Shell />;
 }
 
 function Auth() {
-  const [mode, setMode] = useState<'in' | 'up'>('in');
+  const [mode, setMode] = useState<'in' | 'up' | 'forgot'>('in');
   const [email, setEmail] = useState('');
   const [pw, setPw] = useState('');
-  const [msg, setMsg] = useState('');
+  const [msg, setMsg] = useState<{ text: string; ok?: boolean; resend?: boolean } | null>(null);
   const [busy, setBusy] = useState(false);
+  const redirectTo = location.origin + BASE;
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setBusy(true); setMsg('');
-    const r = mode === 'in' ? await supabase!.auth.signInWithPassword({ email, password: pw }) : await supabase!.auth.signUp({ email, password: pw });
+    setBusy(true); setMsg(null);
+    if (mode === 'forgot') {
+      const { error } = await supabase!.auth.resetPasswordForEmail(email, { redirectTo });
+      setBusy(false);
+      return setMsg(error ? { text: error.message } : { ok: true, text: 'Check your email for a reset link. It brings you back here to choose a new password.' });
+    }
+    const r = mode === 'in'
+      ? await supabase!.auth.signInWithPassword({ email, password: pw })
+      : await supabase!.auth.signUp({ email, password: pw, options: { emailRedirectTo: redirectTo } });
     setBusy(false);
-    if (r.error) return setMsg(r.error.message);
-    if (mode === 'up' && !r.data.session) setMsg('Account created. Check your email for the confirmation link, then sign in here.');
+    if (r.error) {
+      const m = r.error.message;
+      if (/not confirmed/i.test(m)) return setMsg({ text: 'Your email isn’t confirmed yet. Open the confirmation email, or send it again.', resend: true });
+      if (/invalid login/i.test(m)) return setMsg({ text: 'Email or password is incorrect. Use “Forgot password?” to reset it.' });
+      if (/already registered/i.test(m)) return setMsg({ text: 'That email already has an account — sign in instead, or reset the password.' });
+      return setMsg({ text: m });
+    }
+    if (mode === 'up' && !r.data.session) setMsg({ ok: true, text: 'Account created. Open the confirmation email, then sign in here.', resend: true });
+  };
+  const resend = async () => {
+    const { error } = await supabase!.auth.resend({ type: 'signup', email, options: { emailRedirectTo: redirectTo } });
+    setMsg(error ? { text: error.message } : { ok: true, text: 'Confirmation email sent again.' });
+  };
+  const title = { in: 'Sign in to sync your devices', up: 'Create your account (first time only)', forgot: 'Reset your password' }[mode];
+  return (
+    <div className="auth">
+      <form className="card stack" onSubmit={submit}>
+        <div className="row"><img src={BASE + 'icon-192.png'} alt="" /><div><h2>BibleBetter</h2><div className="muted small">{title}</div></div></div>
+        <label className="field">Email<input type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} required /></label>
+        {mode !== 'forgot' && <label className="field">Password<input type="password" autoComplete={mode === 'in' ? 'current-password' : 'new-password'} value={pw} onChange={(e) => setPw(e.target.value)} required minLength={8} /></label>}
+        {msg && <div className="small" style={{ color: msg.ok ? 'var(--mint-text)' : 'var(--rose-text)' }}>{msg.text}</div>}
+        {msg?.resend && <button type="button" className="btn small" onClick={resend} disabled={!email}>Resend confirmation email</button>}
+        <button className="btn primary" disabled={busy}>{mode === 'in' ? 'Sign in' : mode === 'up' ? 'Create account' : 'Send reset link'}</button>
+        <div className="row" style={{ justifyContent: 'space-between' }}>
+          <button type="button" className="btn ghost small" onClick={() => { setMode(mode === 'in' ? 'up' : 'in'); setMsg(null); }}>
+            {mode === 'in' ? 'Create account' : 'Back to sign in'}
+          </button>
+          {mode === 'in' && <button type="button" className="btn ghost small" onClick={() => { setMode('forgot'); setMsg(null); }}>Forgot password?</button>}
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function SetPassword({ onDone }: { onDone: () => void }) {
+  const [pw, setPw] = useState('');
+  const [msg, setMsg] = useState('');
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const { error } = await supabase!.auth.updateUser({ password: pw });
+    if (error) return setMsg(error.message);
+    onDone();
   };
   return (
     <div className="auth">
       <form className="card stack" onSubmit={submit}>
-        <div className="row"><img src={BASE + 'icon-192.png'} alt="" /><div><h2>BibleBetter</h2><div className="muted small">{mode === 'in' ? 'Sign in to sync your devices' : 'Create your account (first time only)'}</div></div></div>
-        <label className="field">Email<input type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} required /></label>
-        <label className="field">Password<input type="password" autoComplete={mode === 'in' ? 'current-password' : 'new-password'} value={pw} onChange={(e) => setPw(e.target.value)} required minLength={8} /></label>
+        <h2>Choose a new password</h2>
+        <label className="field">New password<input type="password" autoComplete="new-password" value={pw} onChange={(e) => setPw(e.target.value)} required minLength={8} autoFocus /></label>
         {msg && <div className="small" style={{ color: 'var(--rose-text)' }}>{msg}</div>}
-        <button className="btn primary" disabled={busy}>{mode === 'in' ? 'Sign in' : 'Create account'}</button>
-        <button type="button" className="btn ghost small" onClick={() => { setMode(mode === 'in' ? 'up' : 'in'); setMsg(''); }}>
-          {mode === 'in' ? 'First time? Create your account' : 'Already have an account? Sign in'}
-        </button>
+        <button className="btn primary">Save password</button>
       </form>
     </div>
   );
