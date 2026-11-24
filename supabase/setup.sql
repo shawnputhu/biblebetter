@@ -28,6 +28,10 @@ drop trigger if exists records_guard on public.records;
 create trigger records_guard before insert or update on public.records
 for each row execute function public.records_guard();
 
+-- 2b. Let signed-in users reach the table through the Data API (new Supabase projects no longer do this
+--     automatically). Row-level security below still limits each user to their own rows.
+grant select, insert, update, delete on public.records to authenticated;
+
 -- 3. Row-level security: you can only ever see and change your own rows.
 alter table public.records enable row level security;
 drop policy if exists "own rows select" on public.records;

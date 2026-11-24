@@ -40,7 +40,7 @@ export function SyncBadge() {
   const s = useUI((x) => x.sync);
   const d = useUI((x) => x.syncDetail);
   const short = { local: 'This device', 'signed-out': 'Signed out', syncing: 'Syncing', synced: 'Synced', offline: 'Offline', error: 'Sync issue' }[s];
-  return <span className={'sync ' + s} title={d}><i />{short}</span>;
+  return <button type="button" className={'sync ' + s} title={d} style={{ border: 'none', background: 'none', cursor: 'pointer' }} onClick={() => toast(d || short, undefined, 8000)}><i />{short}</button>;
 }
 
 export function Ring({ pct, size = 34, stroke = 4 }: { pct: number; size?: number; stroke?: number }) {
