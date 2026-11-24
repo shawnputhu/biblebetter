@@ -6,6 +6,7 @@ import { mutate } from '../lib/write';
 import { TOTAL_VERSES } from '../lib/ref';
 import { Icon } from '../components/Icon';
 import { formatChapters } from './Today';
+import { RefText } from '../components/RefText';
 
 const daysBetween = (a: string, b: string) => Math.round((new Date(b + 'T12:00:00').getTime() - new Date(a + 'T12:00:00').getTime()) / 86_400_000) + 1;
 
@@ -100,7 +101,7 @@ function RtCard({ r, active, count, canDelete }: { r: Readthrough; active: boole
       {open && (refl?.length ? refl.map((x) => (
         <div className="thought" key={x.id}>
           <div className="small muted">{x.date}{x.chapters.length ? ` · ${formatChapters(x.chapters)}` : ''}</div>
-          <div style={{ whiteSpace: 'pre-wrap' }}>{x.text}</div>
+          <RefText text={x.text} />
         </div>
       )) : <div className="muted small">No reflections yet.</div>)}
     </div>

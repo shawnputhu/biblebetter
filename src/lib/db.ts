@@ -35,9 +35,16 @@ export interface RecentItem extends Base { label: string; fn: string; params: Re
 export interface InboxItem extends Base { text: string; created_at: number }
 export interface Meta { key: string; value: unknown }
 
-export const SYNC_TABLES = ['settings', 'readthroughs', 'verse_reads', 'reflections', 'highlights', 'layout_history', 'pane_state', 'recent_items', 'inbox_items'] as const;
+/** A passage: start/end verse ids, optionally a word range inside a single verse (0-based, inclusive). */
+export interface Anchor { s: number; e: number; w?: [number, number] | null; q?: string | null }
+export interface Tag extends Base { name: string; code: string; desc: string; color: string; parent: string | null; order: number }
+export interface Tagging extends Base, Anchor { tag: string; created_at: number } // id = tag|s|e|w
+export interface Note extends Base, Anchor { text: string; tags: string[]; created_at: number }
+export interface LinkItem extends Base, Anchor { url: string; title: string; comment: string; created_at: number }
+
+export const SYNC_TABLES = ['settings', 'readthroughs', 'verse_reads', 'reflections', 'highlights', 'layout_history', 'pane_state', 'recent_items', 'inbox_items', 'tags', 'taggings', 'notes', 'links'] as const;
 export type SyncTable = (typeof SYNC_TABLES)[number];
-export const TRASH_TABLES: SyncTable[] = ['readthroughs', 'reflections', 'highlights', 'inbox_items'];
+export const TRASH_TABLES: SyncTable[] = ['readthroughs', 'reflections', 'highlights', 'inbox_items', 'tags', 'notes', 'links'];
 
 class BBDB extends Dexie {
   settings!: Table<Settings, string>;
@@ -49,6 +56,10 @@ class BBDB extends Dexie {
   pane_state!: Table<PaneState, string>;
   recent_items!: Table<RecentItem, string>;
   inbox_items!: Table<InboxItem, string>;
+  tags!: Table<Tag, string>;
+  taggings!: Table<Tagging, string>;
+  notes!: Table<Note, string>;
+  links!: Table<LinkItem, string>;
   meta!: Table<Meta, string>;
   constructor() {
     super('biblebetter');
@@ -63,6 +74,12 @@ class BBDB extends Dexie {
       recent_items: 'id, at, _dirty',
       inbox_items: 'id, created_at, _dirty',
       meta: 'key',
+    });
+    this.version(2).stores({
+      tags: 'id, parent, _dirty',
+      taggings: 'id, tag, s, _dirty',
+      notes: 'id, s, _dirty',
+      links: 'id, s, _dirty',
     });
   }
 }

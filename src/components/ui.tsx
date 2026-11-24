@@ -87,8 +87,9 @@ export function Palette({ extra }: { extra: Cmd[] }) {
       ...recent.map((r) => ({ id: 'recent-' + r.id, icon: 'clock', label: r.label, hint: 'Recent', run: () => navigate(r.fn, r.params) })),
     ];
     const t = q.trim().toLowerCase();
-    const filtered = t ? base.filter((c) => c.label.toLowerCase().includes(t)) : base.filter((c) => !c.id.startsWith('fn-') || ['fn-today', 'fn-bible', 'fn-readthroughs'].includes(c.id));
+    const filtered = t ? base.filter((c) => c.label.toLowerCase().includes(t)) : base.filter((c) => !c.id.startsWith('fn-') || ['fn-today', 'fn-bible', 'fn-readthroughs', 'fn-notes', 'fn-search'].includes(c.id));
     out.push(...filtered);
+    if (t && !ref) out.push({ id: 'search', icon: 'search', label: `Search everything for “${q.trim()}”`, hint: 'Ctrl+Shift+F', run: () => navigate('search', { q: q.trim() }) });
     if (t && !ref) out.push({ id: 'capture', icon: 'inbox', label: `Capture “${q.trim()}” to Inbox`, run: () => void addInbox(q.trim()) });
     return out.slice(0, 40);
   }, [q, extra, recent, settings.theme]);
@@ -136,6 +137,11 @@ export function CheatSheet() {
     ['Drag across checkboxes', 'Check (or uncheck) many verses at once'],
     ['Right-click a verse', 'Verse actions'],
     ['R', 'Reading mode for the open chapter'],
+    ['T', 'Tag the selected verses (type a code, Enter)'],
+    ['N', 'Note on the selected verses'],
+    ['D', 'Details: tags, notes, links, cross-references'],
+    ['Select words (mouse)', 'Tag or note part of a verse'],
+    ['Ctrl + Shift + F', 'Search everything'],
     ['Esc', 'Close dialogs and Reading mode; clear selection'],
   ];
   return (
@@ -203,7 +209,6 @@ export function PanePicker({ current, onPick, other }: { current: string; onPick
 export function Placeholder({ fn }: { fn: string }) {
   const d = fnDef(fn);
   const what: Record<string, string> = {
-    notes: 'Notes, nested tags with short codes, links, part-of-verse references, cross-references and smart search.',
     plans: 'Reading plans from your own passage list, a calendar and a timeline of everything you do, with reminders.',
     prayer: 'Your prayer journal with answers, the shared People list and daily prayer habits.',
     idealme: '“How do I want to be remembered?” — Smarts, Strength, Social, Spiritual, with daily Do / Don’t tracking and Memorable today.',

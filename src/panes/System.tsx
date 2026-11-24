@@ -8,11 +8,15 @@ import { useUI, toast } from '../lib/store';
 import { downloadBackup, importAll, listSnapshots, snapshotNow, fetchSnapshot, folderSupported, chooseFolder, folderStatus, saveToFolder, type BackupFile } from '../lib/backup';
 import { formatVerses } from '../lib/ref';
 import { Icon } from '../components/Icon';
+import { RefText } from '../components/RefText';
+import { FileInbox } from '../components/Share';
+import type { InboxItem as InboxRow } from '../lib/db';
 
 // ---------------- Inbox ----------------
 export function Inbox() {
   const items = useLiveQuery(async () => (await db.inbox_items.orderBy('created_at').reverse().toArray()).filter((i) => !i.deleted_at && !i.purged), []) ?? [];
   const [t, setT] = useState('');
+  const [filing, setFiling] = useState<InboxRow | null>(null);
   const add = async () => {
     if (!t.trim()) return;
     await mutate('Captured to Inbox', (w) => w.put<InboxItem>('inbox_items', { id: uid(), text: t.trim(), created_at: Date.now() }));
@@ -21,7 +25,7 @@ export function Inbox() {
   return (
     <div className="stack">
       <h2>Inbox</h2>
-      <p className="muted small" style={{ margin: 0 }}>Quick thoughts to sort later. In Phase 2 you’ll be able to file them as notes on verses.</p>
+      <p className="muted small" style={{ margin: 0 }}>Quick thoughts to sort later. File them as notes on a passage when you’re ready.</p>
       <div className="row">
         <input type="text" value={t} onChange={(e) => setT(e.target.value)} placeholder="Capture a thought…" onKeyDown={(e) => { if (e.key === 'Enter') void add(); }} />
         <button className="btn primary" onClick={add}>Add</button>
@@ -29,22 +33,27 @@ export function Inbox() {
       <div className="list">
         {items.map((i) => (
           <div className="item" key={i.id}>
-            <div className="grow"><div style={{ whiteSpace: 'pre-wrap' }}>{i.text}</div><div className="muted small">{new Date(i.created_at).toLocaleString()}</div></div>
+            <div className="grow"><RefText text={i.text} /><div className="muted small">{new Date(i.created_at).toLocaleString()}</div></div>
+            <button className="btn small" onClick={() => setFiling(i)}><Icon name="pen" size={14} /> File as note</button>
             <button className="icon-btn" title="Move to Trash" onClick={() => mutate('Moved to Trash', (w) => w.trash('inbox_items', i.id))}><Icon name="trash" /></button>
           </div>
         ))}
         {!items.length && <div className="muted">Inbox is empty.</div>}
       </div>
+      {filing && <FileInbox item={filing} onClose={() => setFiling(null)} />}
     </div>
   );
 }
 
 // ---------------- Trash ----------------
-const KIND_LABEL: Record<string, string> = { readthroughs: 'Read-through', reflections: 'Reflection', highlights: 'Highlight', inbox_items: 'Inbox item' };
+const KIND_LABEL: Record<string, string> = { readthroughs: 'Read-through', reflections: 'Reflection', highlights: 'Highlight', inbox_items: 'Inbox item', tags: 'Tag', notes: 'Note', links: 'Link' };
 function describe(t: string, r: Base & Record<string, unknown>) {
   if (t === 'readthroughs') return String(r.name);
   if (t === 'reflections') return `${r.date}: ${String(r.text).slice(0, 120)}`;
   if (t === 'highlights') return formatVerses([Number(r.verse)]);
+  if (t === 'tags') return `${r.name} (${r.code})`;
+  if (t === 'notes') return `${formatVerses([Number(r.s), Number(r.e)].filter((x, i, a) => a.indexOf(x) === i))}: ${String(r.text).slice(0, 120)}`;
+  if (t === 'links') return String(r.title || r.url);
   return String(r.text ?? '').slice(0, 140);
 }
 export function Trash() {
@@ -112,6 +121,7 @@ export function SettingsPane({ onSignOut }: { onSignOut: () => void }) {
 
       <section className="card stack">
         <h3>Bible links</h3>
+        <div className="muted small">Cross-references: Treasury of Scripture Knowledge (public domain).</div>
         <label className="field">BibleGateway translation for links
           <select value={s.linkVersion} onChange={(e) => saveSettings({ linkVersion: e.target.value })}>{versions.map((v) => <option key={v}>{v}</option>)}</select>
         </label>

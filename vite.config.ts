@@ -31,9 +31,15 @@ export default defineConfig({
           { src: 'icon-512.png', sizes: '512x512', type: 'image/png' },
           { src: 'icon-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
         ],
+        share_target: {
+          action: BASE + 'share-target/',
+          method: 'GET',
+          params: { title: 'title', text: 'text', url: 'url' },
+        },
         shortcuts: [
           { name: 'Today', url: BASE + '?open=today', icons: [{ src: 'icon-192.png', sizes: '192x192' }] },
           { name: 'Bible', url: BASE + '?open=bible', icons: [{ src: 'icon-192.png', sizes: '192x192' }] },
+          { name: 'Search', url: BASE + '?open=search', icons: [{ src: 'icon-192.png', sizes: '192x192' }] },
         ],
       },
     }),

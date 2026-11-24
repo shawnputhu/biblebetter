@@ -4,7 +4,7 @@ import { db, SYNC_TABLES, getMeta, setMeta, type SyncTable } from './db';
 import { ui } from './store';
 
 export const supabase: SupabaseClient | null =
-  SUPABASE_URL && SUPABASE_PUBLISHABLE_KEY
+  SUPABASE_URL && SUPABASE_PUBLISHABLE_KEY && !import.meta.env.VITE_LOCAL_ONLY
     ? createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, { auth: { persistSession: true, autoRefreshToken: true } })
     : null;
 

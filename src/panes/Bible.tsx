@@ -5,10 +5,13 @@ import { db, alive, todayStr } from '../lib/db';
 import { useActiveRt, useReadMap, useSettings, useKjv, saveSettings, isTyping, type Device } from '../lib/hooks';
 import { vid, vBook, vChap, vVerse, chapKey, chapterVerseIds, bgUrl, formatVerses, verseRef } from '../lib/ref';
 import { setChecked, setHighlight, copyRef } from '../lib/actions';
+import { useTagIndex, useTaggings, useNotes, useLinks, overlaps, anchorOf, words } from '../lib/annot';
+import type { Anchor } from '../lib/db';
 import { usePaneState, addRecent } from '../lib/layout';
 import { ui, toast } from '../lib/store';
 import { Icon } from '../components/Icon';
 import { Ring, Modal } from '../components/ui';
+import { RefText } from '../components/RefText';
 
 export const HL_COLORS = [
   { key: 'butter', css: 'var(--butter)' },
@@ -136,6 +139,24 @@ function Chapter({ book, chapter, rt, reads, focused, jump, clearJump, go }: Cha
   const kjv = useKjv();
   const hl = useHighlights();
   const verses = useMemo(() => chapterVerseIds(book, chapter), [book, chapter]);
+  const tagIdx = useTagIndex();
+  const taggings = useTaggings();
+  const notes = useNotes();
+  const links = useLinks();
+  const marks = useMemo(() => {
+    const m = new Map<number, { colors: string[]; note: boolean; link: boolean; partial: [number, number][] }>();
+    const lo = verses[0], hi = verses[verses.length - 1];
+    const get = (v: number) => { if (!m.has(v)) m.set(v, { colors: [], note: false, link: false, partial: [] }); return m.get(v)!; };
+    const each = (a: Anchor, f: (x: ReturnType<typeof get>) => void) => {
+      if (a.e < lo || a.s > hi) return;
+      for (const v of verses) if (overlaps(a, v)) { const x = get(v); f(x); if (a.w && a.s === a.e) x.partial.push(a.w); }
+    };
+    taggings.forEach((t) => { const c = tagIdx.byId.get(t.tag)?.color; if (c) each(t, (x) => { if (!x.colors.includes(c)) x.colors.push(c); }); });
+    notes.forEach((n) => each(n, (x) => { x.note = true; }));
+    links.forEach((l) => each(l, (x) => { x.link = true; }));
+    return m;
+  }, [verses, taggings, notes, links, tagIdx]);
+  const [wordBar, setWordBar] = useState<{ x: number; y: number; a: Anchor } | null>(null);
   const [sel, setSel] = useState<Set<number>>(new Set());
   const [anchor, setAnchor] = useState<number | null>(null);
   const [focusIdx, setFocusIdx] = useState(0);
@@ -274,6 +295,9 @@ function Chapter({ book, chapter, rt, reads, focused, jump, clearJump, go }: Cha
       else if (e.key === ' ') { e.preventDefault(); const t = sel.size ? [...sel] : [verses[i]]; void setChecked(rt, t, !t.every((v) => reads.has(v))); return; }
       else if (e.key === 'Escape') { setSel(new Set()); setMenu(null); return; }
       else if (e.key === 'r' || e.key === 'R') { if (!e.ctrlKey && !e.metaKey) ui.set({ reading: { book, chapter } }); return; }
+      else if ((e.key === 't' || e.key === 'T') && !e.ctrlKey && !e.metaKey) { e.preventDefault(); ui.set({ tagFor: anchorOf(sel.size ? [...sel] : [verses[i]]) }); return; }
+      else if ((e.key === 'n' || e.key === 'N') && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); ui.set({ noteFor: { anchor: anchorOf(sel.size ? [...sel] : [verses[i]]) } }); return; }
+      else if ((e.key === 'd' || e.key === 'D') && !e.ctrlKey && !e.metaKey) { e.preventDefault(); ui.set({ details: anchorOf(sel.size ? [...sel] : [verses[i]]) }); return; }
       else return;
       e.preventDefault();
       if (e.shiftKey) { const a = anchor ?? verses[focusIdx]; setAnchor(a); setSel(new Set(range(a, verses[i]))); }
@@ -290,6 +314,39 @@ function Chapter({ book, chapter, rt, reads, focused, jump, clearJump, go }: Cha
   const link = (vs: number[]) => bgUrl(formatVerses(vs), settings.linkVersion);
   const nextChap = chapter < bk.v.length ? [book, chapter + 1] : book < 66 ? [book + 1, 1] : null;
   const prevChap = chapter > 1 ? [book, chapter - 1] : book > 1 ? [book - 1, BOOKS[book - 2].v.length] : null;
+
+  const Marks = ({ v }: { v: number }) => {
+    const m = marks.get(v);
+    if (!m || (!m.colors.length && !m.note && !m.link)) return null;
+    return (
+      <button className="marks" title="Tags, notes and links" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); ui.set({ details: anchorOf([v]) }); }}>
+        {m.colors.slice(0, 3).map((c) => <i key={c} style={{ background: c }} />)}
+        {m.note && <Icon name="pen" size={11} />}{m.link && <Icon name="link" size={11} />}
+      </button>
+    );
+  };
+  const renderText = (v: number) => {
+    const t = kjv ? kjv[book - 1][chapter - 1][vVerse(v) - 1] : '…';
+    const parts = marks.get(v)?.partial ?? [];
+    if (!parts.length || !kjv) return t;
+    return words(t).map((w, i) => <span key={i}><span className={parts.some(([a, b]) => i >= a && i <= b) ? 'part' : ''}>{w}</span> </span>);
+  };
+  const onTextMouseUp = (v: number) => {
+    const s = window.getSelection();
+    if (!s || s.isCollapsed || !kjv) return;
+    const el = boxRef.current?.querySelector(`[data-v="${v}"] .txt`);
+    if (!el || !el.contains(s.anchorNode) || !el.contains(s.focusNode)) return;
+    const full = kjv[book - 1][chapter - 1][vVerse(v) - 1];
+    const range = s.getRangeAt(0);
+    const pre = document.createRange(); pre.selectNodeContents(el); pre.setEnd(range.startContainer, range.startOffset);
+    const startChar = pre.toString().length, endChar = startChar + range.toString().length;
+    let pos = 0; const idx: number[] = [];
+    words(full).forEach((w, i) => { const at = full.indexOf(w, pos); pos = at + w.length; if (at < endChar && at + w.length > startChar) idx.push(i); });
+    if (!idx.length) return;
+    const w: [number, number] = [idx[0], idx[idx.length - 1]];
+    const rect = range.getBoundingClientRect();
+    setWordBar({ x: Math.min(rect.left, window.innerWidth - 300), y: rect.bottom + 6, a: { s: v, e: v, w, q: words(full).slice(w[0], w[1] + 1).join(' ') } });
+  };
 
   const swipeStyle = (v: number) => (swipe?.v === v ? { transform: `translateX(${swipe.dx}px)` } : undefined);
   const common = (v: number, target: 'box' | 'text') => ({
@@ -322,6 +379,7 @@ function Chapter({ book, chapter, rt, reads, focused, jump, clearJump, go }: Cha
               onContextMenu={(e) => onContext(e, v)}>
               {vVerse(v)}
               {hl.get(v) && <i className="hl" style={{ background: hlCss(hl.get(v)) }} />}
+              {marks.get(v) && <span className="cmarks">{marks.get(v)!.colors.slice(0, 3).map((c) => <i key={c} style={{ background: c }} />)}{(marks.get(v)!.note || marks.get(v)!.link) && <i className="nl" />}</span>}
             </div>
           ))}
         </div>
@@ -334,9 +392,11 @@ function Chapter({ book, chapter, rt, reads, focused, jump, clearJump, go }: Cha
                 {...common(v, 'box')} onPointerEnter={() => enterDrag(v)}><Icon name="check" size={16} /></div>
               <div className="num" onClick={(e) => toggleSel(v, e.shiftKey)}>{vVerse(v)}</div>
               <div className="txt" style={{ background: hlCss(hl.get(v)) }} {...common(v, 'text')}
-                onClick={(e) => { if ((e.nativeEvent as PointerEvent).pointerType === 'mouse' && !e.shiftKey && !e.ctrlKey && !e.metaKey) toggleSel(v, false); }}>
-                {kjv ? kjv[book - 1][chapter - 1][vVerse(v) - 1] : '…'}
+                onMouseUp={() => onTextMouseUp(v)}
+                onClick={(e) => { if (window.getSelection()?.isCollapsed === false) return; if ((e.nativeEvent as PointerEvent).pointerType === 'mouse' && !e.shiftKey && !e.ctrlKey && !e.metaKey) toggleSel(v, false); }}>
+                {renderText(v)}
               </div>
+              <Marks v={v} />
               <a className="icon-btn esv" href={link([v])} target="_blank" rel="noreferrer" title={`${verseRef(v)} in ${settings.linkVersion}`}><Icon name="link" size={16} /></a>
             </div>
           ))}
@@ -348,6 +408,9 @@ function Chapter({ book, chapter, rt, reads, focused, jump, clearJump, go }: Cha
           <strong className="small" style={{ marginRight: 4 }}>{formatVerses(selList)}</strong>
           <button className="btn small primary" onClick={() => void setChecked(rt, selList, true)}><Icon name="check" size={14} /> Check</button>
           <button className="btn small" onClick={() => void setChecked(rt, selList, false)}>Uncheck</button>
+          <button className="btn small" onClick={() => ui.set({ tagFor: anchorOf(selList) })} title="Tag (T)"><Icon name="tag" size={14} /> Tag</button>
+          <button className="btn small" onClick={() => ui.set({ noteFor: { anchor: anchorOf(selList) } })} title="Note (N)"><Icon name="pen" size={14} /> Note</button>
+          <button className="btn small" onClick={() => ui.set({ details: anchorOf(selList) })} title="Details (D)"><Icon name="more" size={14} /> Details</button>
           <div className="swatches">
             {HL_COLORS.map((c) => <button key={c.key} className="swatch" style={{ background: c.css }} title={`Highlight ${c.key}`} onClick={() => void setHighlight(selList, c.key)} />)}
             <button className="swatch none" title="Remove highlight" onClick={() => void setHighlight(selList, null)} />
@@ -368,7 +431,7 @@ function Chapter({ book, chapter, rt, reads, focused, jump, clearJump, go }: Cha
           {refl.sort((a, b) => b.date.localeCompare(a.date)).map((r) => (
             <div className="thought" key={r.id}>
               <div className="small muted">{r.date} · {rts?.find((x) => x.id === r.rt)?.name ?? 'Read-through'}{r.rt !== rt ? ' (earlier read-through)' : ''}</div>
-              <div style={{ whiteSpace: 'pre-wrap' }}>{r.text}</div>
+              <RefText text={r.text} />
             </div>
           ))}
         </section>
@@ -379,6 +442,15 @@ function Chapter({ book, chapter, rt, reads, focused, jump, clearJump, go }: Cha
         {nextChap && <button className="btn" onClick={() => go(nextChap[0], nextChap[1])}>{BOOKS[nextChap[0] - 1].abbr} {nextChap[1]} <Icon name="right" size={16} /></button>}
       </div>
 
+      {wordBar && (
+        <div className="scrim" style={{ background: 'transparent' }} onMouseDown={() => setWordBar(null)}>
+          <div className="menu fixed row" style={{ left: wordBar.x, top: wordBar.y, minWidth: 0, gap: 4 }} onMouseDown={(e) => e.stopPropagation()}>
+            <button className="btn small primary" onClick={() => { ui.set({ tagFor: wordBar.a }); setWordBar(null); }}><Icon name="tag" size={14} /> Tag words</button>
+            <button className="btn small" onClick={() => { ui.set({ noteFor: { anchor: wordBar.a } }); setWordBar(null); }}><Icon name="pen" size={14} /> Note</button>
+            <button className="btn small" onClick={() => { ui.set({ details: wordBar.a }); setWordBar(null); }}>More</button>
+          </div>
+        </div>
+      )}
       {menu && (
         <div className="scrim" style={{ background: 'transparent' }} onMouseDown={() => setMenu(null)}>
           <div className="menu fixed" style={{ left: menu.x, top: menu.y }} onMouseDown={(e) => e.stopPropagation()}>
@@ -412,8 +484,9 @@ function VerseActions({ verses, rt, reads, link, close, book, chapter }: { verse
       <button className="menu-item" onClick={run(() => ui.set({ reading: { book, chapter } }))}><Icon name="read" /> Reading mode</button>
       <button className="menu-item" onClick={run(() => ui.set({ reflectFor: { chapter: chapKey(book, chapter) } }))}><Icon name="reflect" /> Reflect</button>
       <div className="menu-sep" />
-      <button className="menu-item" disabled><Icon name="tag" /> Tag <span className="hint">Phase 2</span></button>
-      <button className="menu-item" disabled><Icon name="pen" /> Add note <span className="hint">Phase 2</span></button>
+      <button className="menu-item" onClick={run(() => ui.set({ tagFor: anchorOf(verses) }))}><Icon name="tag" /> Tag <span className="hint">T</span></button>
+      <button className="menu-item" onClick={run(() => ui.set({ noteFor: { anchor: anchorOf(verses) } }))}><Icon name="pen" /> Add note <span className="hint">N</span></button>
+      <button className="menu-item" onClick={run(() => ui.set({ details: anchorOf(verses) }))}><Icon name="more" /> Details, links & cross-references <span className="hint">D</span></button>
       <button className="menu-item" disabled><Icon name="star" /> Add to Ideal Me <span className="hint">Phase 5</span></button>
     </div>
   );

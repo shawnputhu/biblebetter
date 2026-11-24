@@ -7,6 +7,7 @@ import { useLayout, fnDef, FUNCTIONS } from './lib/layout';
 import { ui, useUI, setNavListener, navigate } from './lib/store';
 import { undoLast } from './lib/write';
 import { purgeOldTrash } from './lib/actions';
+import { ensureStarterTags } from './lib/annot';
 import { runWeeklyBackups } from './lib/backup';
 import { Icon } from './components/Icon';
 import { Toasts, Palette, CheatSheet, Capture, PanePicker, Placeholder, Walkthrough, SyncBadge, Modal } from './components/ui';
@@ -15,6 +16,12 @@ import Today, { ReflectModal } from './panes/Today';
 import Reading from './panes/Reading';
 import Readthroughs from './panes/Readthroughs';
 import { Inbox, Trash, SettingsPane } from './panes/System';
+import Notes from './panes/Notes';
+import Search from './panes/Search';
+import { Details, NoteEditor } from './panes/Details';
+import { TagPicker } from './components/TagPicker';
+import { RefPreview } from './components/RefText';
+import { ShareSheet } from './components/Share';
 
 const BASE = import.meta.env.BASE_URL;
 
@@ -31,6 +38,7 @@ export default function App() {
     startSyncLoop();
     await Promise.race([syncNow(), new Promise((r) => setTimeout(r, 8000))]);
     await ensureSetup();
+    await ensureStarterTags();
     setPhase('ready');
     void purgeOldTrash();
     void runWeeklyBackups();
@@ -161,10 +169,15 @@ function Shell() {
     });
   }, [dual]);
 
-  // app-icon shortcuts (?open=today)
+  // app-icon shortcuts (?open=today) and Android "Share → BibleBetter"
   useEffect(() => {
-    const p = new URLSearchParams(location.search).get('open');
+    const sp = new URLSearchParams(location.search);
+    const p = sp.get('open');
     if (p && FUNCTIONS.some((f) => f.key === p)) { navigate(p); history.replaceState(null, '', location.pathname); }
+    if (location.pathname.endsWith('/share-target/') || location.pathname.endsWith('/share-target')) {
+      ui.set({ share: { title: sp.get('title') ?? '', text: sp.get('text') ?? '', url: sp.get('url') ?? '' } });
+      history.replaceState(null, '', BASE);
+    }
   }, []);
 
   // global keyboard shortcuts
@@ -179,6 +192,7 @@ function Shell() {
       if (mod && e.key === '1') { e.preventDefault(); ui.set({ focusedSlot: 'left' }); return; }
       if (mod && e.key === '2') { e.preventDefault(); ui.set({ focusedSlot: 'right' }); return; }
       if (e.altKey && e.key.toLowerCase() === 'n') { e.preventDefault(); ui.set({ capture: true }); return; }
+      if (mod && e.shiftKey && e.key.toLowerCase() === 'f') { e.preventDefault(); navigate('search'); return; }
       if (e.key === '?' && !mod) { ui.set({ cheat: true }); }
     };
     window.addEventListener('keydown', f);
@@ -198,6 +212,8 @@ function Shell() {
       case 'today': return <div className="pane-body"><Today device={device} /></div>;
       case 'bible': return <Bible device={device} req={req} focused={focused} />;
       case 'readthroughs': return <div className="pane-body"><Readthroughs req={req} /></div>;
+      case 'notes': return <div className="pane-body"><Notes device={device} req={req} /></div>;
+      case 'search': return <div className="pane-body"><Search device={device} req={req} /></div>;
       case 'inbox': return <div className="pane-body"><Inbox /></div>;
       case 'trash': return <div className="pane-body"><Trash /></div>;
       case 'settings': return <div className="pane-body"><SettingsPane onSignOut={signOut} /></div>;
@@ -217,6 +233,11 @@ function Shell() {
       <CheatSheet />
       <Capture phone={!dual} />
       <ReflectModal />
+      <TagPicker />
+      <NoteEditor />
+      <Details phone={!dual} />
+      <RefPreview />
+      <ShareSheet phone={!dual} />
       <Reading />
       <MoreSheet layout={layout} />
       {settingsRow && !settingsRow.walkthroughDone && <Walkthrough onDone={() => saveSettings({ walkthroughDone: true })} />}
@@ -234,6 +255,7 @@ function Shell() {
         <button className="icon-btn" title="Undo layout change (Ctrl+Shift+Z)" onClick={() => void layout.undo()} disabled={!layout.canUndo}><Icon name="history" /></button>
         <RecentPairs layout={layout} />
         <SyncBadge />
+ <button className="icon-btn" title="Search everything (Ctrl+Shift+F)" onClick={() => navigate('search')}><Icon name="search" /></button>
         <button className="icon-btn" title="Keyboard shortcuts (?)" onClick={() => ui.set({ cheat: true })}><Icon name="keyboard" /></button>
         <button className="icon-btn" title="Settings" onClick={() => navigate('settings')}><Icon name="gear" /></button>
       </header>
@@ -263,7 +285,7 @@ function Shell() {
         <button className={visible === 'today' ? 'on' : ''} onClick={() => navigate('today')}><Icon name="sun" size={22} />Today</button>
         <button className={visible === 'bible' ? 'on' : ''} onClick={() => navigate('bible')}><Icon name="book" size={22} />Bible</button>
         <button className="fab" aria-label="Quick capture" onClick={() => ui.set({ capture: true })}><Icon name="plus" size={26} /></button>
-        <button onClick={() => ui.set({ palette: true })}><Icon name="search" size={22} />Search</button>
+        <button className={visible === 'search' ? 'on' : ''} onClick={() => navigate('search')}><Icon name="search" size={22} />Search</button>
         <button onClick={() => ui.set({ more: true })}><Icon name="more" size={22} />More</button>
       </nav>
       {overlays}
@@ -362,6 +384,7 @@ function MoreSheet({ layout }: { layout: LayoutApi }) {
           </button>
         ))}
         <div className="menu-sep" />
+        <button className="menu-item" onClick={() => { ui.set({ palette: true }); close(); }}><Icon name="keyboard" /> Commands</button>
         <button className="menu-item" onClick={() => { navigate('inbox'); close(); }}><Icon name="inbox" /> Inbox</button>
         <button className="menu-item" onClick={() => { navigate('trash'); close(); }}><Icon name="trash" /> Trash</button>
         <button className="menu-item" onClick={() => { navigate('settings'); close(); }}><Icon name="gear" /> Settings</button>

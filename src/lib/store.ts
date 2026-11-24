@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react';
+import type { Anchor } from './db';
 
 /** Minimal global UI store (not persisted). */
 export type SyncStatus = 'local' | 'signed-out' | 'syncing' | 'synced' | 'offline' | 'error';
@@ -17,6 +18,11 @@ export interface UIState {
   syncDetail: string;
   reading: { book: number; chapter: number } | null;
   reflectFor: { chapter?: string } | null;
+  tagFor: Anchor | null;
+  noteFor: { anchor: Anchor; id?: string; text?: string } | null;
+  details: Anchor | null;
+  preview: { s: number; e: number; label: string } | null;
+  share: { title: string; text: string; url: string } | null;
 }
 
 let state: UIState = {
@@ -31,6 +37,11 @@ let state: UIState = {
   syncDetail: '',
   reading: null,
   reflectFor: null,
+  tagFor: null,
+  noteFor: null,
+  details: null,
+  preview: null,
+  share: null,
 };
 const subs = new Set<() => void>();
 
