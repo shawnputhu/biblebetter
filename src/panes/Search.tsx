@@ -10,6 +10,7 @@ import { navigate, ui } from '../lib/store';
 import { Icon } from '../components/Icon';
 import { TagChip } from '../components/TagPicker';
 import { toRange, openRef } from '../components/RefText';
+import { MicButton } from '../components/Voice';
 
 interface Q { terms: string[]; phrases: string[] }
 function parseQuery(q: string): Q {
@@ -105,6 +106,7 @@ export default function Search({ device, req }: { device: Device; req?: { n: num
     <div className="stack">
       <div className="row">
         <input ref={input} type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder='Search verses, tags, notes… e.g. "love of God", grace faith, rom 8' style={{ fontSize: 16 }} />
+        <MicButton onText={(x) => setQ(x.replace(/[.?!]$/, ''))} label="Say what to search for" />
       </div>
       <div className="row wrap">
         <select value={scope} onChange={(e) => setSt({ scope: Number(e.target.value) })} style={{ width: 170 }}>

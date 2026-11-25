@@ -8,7 +8,10 @@ import { useUI, toast } from '../lib/store';
 import { downloadBackup, importAll, listSnapshots, snapshotNow, fetchSnapshot, folderSupported, chooseFolder, folderStatus, saveToFolder, type BackupFile } from '../lib/backup';
 import { formatVerses } from '../lib/ref';
 import { Icon } from '../components/Icon';
+import * as tts from '../lib/tts';
+import { pushSupported, enablePush, savePrefs, currentSub, disablePush, testPush } from '../lib/push';
 import { RefText } from '../components/RefText';
+import { MicButton } from '../components/Voice';
 import { FileInbox } from '../components/Share';
 import type { InboxItem as InboxRow } from '../lib/db';
 
@@ -28,6 +31,7 @@ export function Inbox() {
       <p className="muted small" style={{ margin: 0 }}>Quick thoughts to sort later. File them as notes on a passage when you’re ready.</p>
       <div className="row">
         <input type="text" value={t} onChange={(e) => setT(e.target.value)} placeholder="Capture a thought…" onKeyDown={(e) => { if (e.key === 'Enter') void add(); }} />
+        <MicButton onText={(x) => setT((y) => (y ? y.replace(/\s*$/, ' ') : '') + x)} />
         <button className="btn primary" onClick={add}>Add</button>
       </div>
       <div className="list">
@@ -116,7 +120,10 @@ export function SettingsPane({ onSignOut }: { onSignOut: () => void }) {
             <button key={t} className={'btn small' + (s.theme === t ? ' primary' : '')} onClick={() => saveSettings({ theme: t })}>{t === 'system' ? 'Follow device' : t[0].toUpperCase() + t.slice(1)}</button>
           ))}
         </div>
-        <label className="row small"><input type="checkbox" checked={s.compact} onChange={(e) => saveSettings({ compact: e.target.checked })} /> Compact verse view (checkboxes only) by default</label>
+        <label className="field">Bible view
+          <select value={s.bibleView ?? (s.compact ? 'compact' : 'text')} onChange={(e) => saveSettings({ bibleView: e.target.value as 'compact' | 'text' | 'read' })}>
+            <option value="compact">Checkboxes only</option><option value="text">Verse by verse with text</option><option value="read">Reading view (paragraphs)</option>
+          </select></label>
       </section>
 
       <section className="card stack">
@@ -127,6 +134,9 @@ export function SettingsPane({ onSignOut }: { onSignOut: () => void }) {
         </label>
         <div className="muted small">The text inside BibleBetter is the KJV (public domain). Verse numbers follow the KJV.</div>
       </section>
+
+      <VoiceSettings />
+      <ReminderSettings />
 
       <section className="card stack">
         <h3>Today screen</h3>
@@ -205,5 +215,77 @@ export function SettingsPane({ onSignOut }: { onSignOut: () => void }) {
       </section>
       <div className="muted small">BibleBetter · Phase 1</div>
     </div>
+  );
+}
+
+function VoiceSettings() {
+  const s = useSettings();
+  const [vs, setVs] = useState<SpeechSynthesisVoice[]>([]);
+  useEffect(() => {
+    const f = () => setVs(tts.voices());
+    f();
+    if (tts.ttsSupported()) speechSynthesis.addEventListener('voiceschanged', f);
+    return () => { if (tts.ttsSupported()) speechSynthesis.removeEventListener('voiceschanged', f); };
+  }, []);
+  return (
+    <section className="card stack">
+      <h3>Read aloud & voice</h3>
+      <div className="row wrap">
+        <label className="field" style={{ flex: 1, minWidth: 200 }}>Voice<select value={s.ttsVoice ?? ''} onChange={(e) => saveSettings({ ttsVoice: e.target.value })}><option value="">Device default</option>{vs.map((x) => <option key={x.voiceURI} value={x.voiceURI}>{x.name}</option>)}</select></label>
+        <label className="field" style={{ width: 200 }}>Speed · {(s.ttsRate ?? 1).toFixed(2)}×<input type="range" min={0.5} max={2} step={0.05} value={s.ttsRate ?? 1} onChange={(e) => saveSettings({ ttsRate: Number(e.target.value) })} /></label>
+        <button className="btn small" style={{ alignSelf: 'flex-end' }} onClick={() => tts.playText(['In the beginning God created the heaven and the earth.'], 'Voice test')}><Icon name="volume" size={14} /> Test</button>
+      </div>
+      <label className="row small"><input type="checkbox" checked={!!s.autoCheckListening} onChange={(e) => saveSettings({ autoCheckListening: e.target.checked })} /> Check verses as they’re read aloud</label>
+      <label className="row small"><input type="checkbox" checked={s.continueChapters !== false} onChange={(e) => saveSettings({ continueChapters: e.target.checked })} /> Keep reading into the next chapter</label>
+      <label className="row small"><input type="checkbox" checked={s.keepScreenOn !== false} onChange={(e) => saveSettings({ keepScreenOn: e.target.checked })} /> Keep the screen on while reading aloud (Android stops speech when the screen locks)</label>
+      <label className="field">Spoken replies to voice commands
+        <select value={s.voiceReplies ?? 'brief'} onChange={(e) => saveSettings({ voiceReplies: e.target.value as 'off' | 'brief' | 'full' })}>
+          <option value="off">Off — show on screen only</option><option value="brief">Brief — “Tagged Salvation”</option><option value="full">Full — “Tagged Romans 8:28 to 30 with Salvation”</option>
+        </select></label>
+      <label className="row small"><input type="checkbox" checked={!!s.handsFree} onChange={(e) => saveSettings({ handsFree: e.target.checked })} /> Hands-free mode: full spoken replies, and the mic listens again after each reply</label>
+      <div className="muted small">Voice commands: tap the mic (or press V) and speak. Say “what can I say?” for the list. Speech-to-text uses Chrome’s online service, so it needs internet; reading aloud works offline.</div>
+    </section>
+  );
+}
+
+function ReminderSettings() {
+  const s = useSettings();
+  const r = s.reminders ?? { on: false, reading: '07:00', morning: null, evening: '20:30', quietFrom: '22:00', quietTo: '06:00' };
+  const [deviceOn, setDeviceOn] = useState<boolean | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { void currentSub().then((x) => setDeviceOn(!!x)); }, []);
+  const update = async (patch: Partial<typeof r>) => {
+    const next = { ...r, ...patch };
+    await saveSettings({ reminders: next });
+    try { await savePrefs(next); } catch (e) { toast(`Couldn’t update reminders: ${(e as Error).message}`); }
+  };
+  if (!supabase) return null;
+  const time = (k: 'reading' | 'morning' | 'evening', label: string) => (
+    <div className="row">
+      <label className="row small" style={{ width: 170 }}><input type="checkbox" checked={!!r[k]} onChange={(e) => void update({ [k]: e.target.checked ? (k === 'morning' ? '06:30' : k === 'evening' ? '20:30' : '07:00') : null })} /> {label}</label>
+      {r[k] && <input type="time" value={r[k]!} onChange={(e) => void update({ [k]: e.target.value })} style={{ width: 130 }} />}
+    </div>
+  );
+  return (
+    <section className="card stack">
+      <h3>Reminders</h3>
+      {!pushSupported() ? <div className="muted small">This browser can’t show notifications. Install BibleBetter from Chrome or Edge.</div> : (
+        <>
+          <div className="row wrap">
+            <span className="small">{deviceOn ? 'Notifications are on for this device.' : 'Notifications are off for this device.'}</span><span className="spacer" />
+            {!deviceOn ? <button className="btn small primary" disabled={busy} onClick={async () => { setBusy(true); try { await enablePush({ ...r, on: true }); await saveSettings({ reminders: { ...r, on: true } }); setDeviceOn(true); toast('Notifications turned on'); } catch (e) { toast((e as Error).message); } setBusy(false); }}><Icon name="bell" size={14} /> Turn on for this device</button>
+              : <>
+                <button className="btn small" onClick={async () => { try { await testPush(); toast('Test sent — it should arrive in a few seconds'); } catch (e) { toast((e as Error).message); } }}>Send a test</button>
+                <button className="btn small" onClick={async () => { await disablePush(); setDeviceOn(false); toast('Notifications turned off for this device'); }}>Turn off</button>
+              </>}
+          </div>
+          {time('morning', 'Morning')}
+          {time('reading', 'Daily reading')}
+          {time('evening', 'Evening review')}
+          <div className="row small">Quiet hours <input type="time" value={r.quietFrom} onChange={(e) => void update({ quietFrom: e.target.value })} style={{ width: 120 }} /> to <input type="time" value={r.quietTo} onChange={(e) => void update({ quietTo: e.target.value })} style={{ width: 120 }} /></div>
+          <div className="muted small">Reminders are sent by your Supabase project, so they arrive even when BibleBetter is closed. Each device you turn on gets them.</div>
+        </>
+      )}
+    </section>
   );
 }

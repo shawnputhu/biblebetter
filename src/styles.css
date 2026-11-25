@@ -323,3 +323,53 @@ code { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-si
 .result:hover { outline: 1px solid var(--accent); }
 .result mark { background: var(--butter); color: inherit; border-radius: 3px; padding: 0 1px; }
 .colors { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+
+/* ---------- Phase 3: plans, calendar, timeline, read aloud, voice ---------- */
+.plan-preview { padding: 8px 12px; border-radius: 12px; background: var(--surface-2); }
+.plan-day.done { opacity: .65; }
+.plan-day.today { outline: 2px solid var(--accent-soft); }
+.daydot { width: 12px; height: 12px; border-radius: 50%; flex: none; border: 2px solid var(--line); }
+.daydot.done { background: var(--mint-strong); border-color: transparent; }
+.daydot.today { border-color: var(--accent); }
+.daydot.missed { border-color: var(--rose-text); }
+.daydot.partial { background: linear-gradient(90deg, var(--mint-strong) 50%, transparent 50%); border-color: var(--mint-strong); }
+.cal { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+.cal-h { text-align: center; font-size: 12px; color: var(--muted); padding: 4px 0; }
+.cal-d { position: relative; aspect-ratio: 1; min-height: 44px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 4px 2px; }
+.cal-d .n { font-weight: 600; font-size: 13px; }
+.cal-d .cnt { font-size: 10px; color: var(--mint-text); margin-top: auto; }
+.cal-d.today { border-color: var(--accent); }
+.cal-d.sel { box-shadow: 0 0 0 2px var(--accent); }
+.cal-d .dots { display: flex; gap: 2px; margin-top: 3px; }
+.cal-d .dots i, .legend i { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+.legend { display: inline-flex; align-items: center; gap: 4px; }
+.legend i { margin-left: 6px; }
+.c-read { background: var(--mint-strong); } .c-refl { background: var(--accent); } .c-note { background: #e0b44c; } .c-plan { background: transparent; box-shadow: inset 0 0 0 1.5px #6aa3d8; }
+.timeline { display: flex; flex-direction: column; gap: 2px; }
+.tl-date { font-size: 12px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin: 14px 0 4px; }
+.tl-ev { display: flex; gap: 10px; align-items: flex-start; padding: 8px 10px; border-radius: 12px; }
+.tl-ev:hover { background: var(--surface-2); }
+.tl-dot { width: 10px; height: 10px; border-radius: 50%; margin-top: 5px; flex: none; background: var(--muted); }
+.tl-dot.read { background: var(--mint-strong); } .tl-dot.reflection { background: var(--accent); } .tl-dot.note { background: #e0b44c; } .tl-dot.tag { background: #e58fa5; } .tl-dot.link { background: #6aa3d8; } .tl-dot.plan, .tl-dot.readthrough { background: var(--text); }
+
+.readview { font-family: var(--serif); margin: 0; user-select: none; -webkit-user-select: none; }
+.readview .rv { border-radius: 4px; transition: background .2s, opacity .2s; }
+.readview sup { font-family: var(--font); font-size: 11px; font-weight: 700; color: var(--muted); padding: 1px 5px; margin: 0 3px 0 6px; border-radius: 6px; cursor: pointer; vertical-align: .4em; border: 1px solid var(--line); }
+.readview sup.on { background: var(--mint); color: var(--mint-text); border-color: transparent; }
+.readview .rv.sel .t { background: var(--accent-soft); }
+.readview .rv.focus sup { outline: 2px dashed var(--accent); }
+@media (hover: hover) { .readview .t { user-select: text; -webkit-user-select: text; } }
+.speaking, .readview .rv.speaking .t { background: color-mix(in srgb, var(--butter) 75%, transparent) !important; box-shadow: 0 0 0 3px color-mix(in srgb, var(--butter) 75%, transparent); border-radius: 6px; }
+.spoken-prev { opacity: .6; }
+.player { position: fixed; z-index: 55; left: 50%; transform: translateX(-50%); bottom: 16px; width: min(560px, calc(100vw - 16px)); padding: 8px 10px; border-radius: 18px; background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow); }
+.has-bottombar .player { bottom: 84px; }
+.player ~ .toasts, .has-bottombar .player ~ .toasts { bottom: 150px; }
+.mic-wrap { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.mic.on { background: var(--rose); color: var(--rose-text); animation: pulse 1.2s infinite; }
+.mic-interim { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.voice-panel { position: fixed; z-index: 65; left: 50%; transform: translateX(-50%); top: 70px; width: min(520px, calc(100vw - 16px)); padding: 12px; border-radius: 18px; background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow); max-height: 70vh; overflow: auto; }
+.voice-dot { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; background: var(--surface-2); color: var(--muted); flex: none; }
+.voice-dot.on { background: var(--rose); color: var(--rose-text); animation: pulse 1.2s infinite; }
+.voice-help { display: grid; gap: 8px; margin-top: 10px; }
+.bottombar.six { grid-template-columns: repeat(6, 1fr); }
+.viewseg { display: inline-flex; gap: 2px; padding: 2px; border-radius: 13px; background: var(--surface-2); }

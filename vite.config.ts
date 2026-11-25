@@ -16,6 +16,7 @@ export default defineConfig({
         globPatterns: ['**/*.{js,css,html,png,svg,json,woff2}'],
         maximumFileSizeToCacheInBytes: 8 * 1024 * 1024,
         navigateFallback: BASE + 'index.html',
+        importScripts: ['push-sw.js'],
       },
       manifest: {
         name: 'BibleBetter',

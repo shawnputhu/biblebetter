@@ -23,6 +23,15 @@ export interface Settings extends Base {
   compact: boolean;
   activeRt?: string;
   walkthroughDone?: boolean;
+  bibleView?: 'compact' | 'text' | 'read';
+  ttsRate?: number;
+  ttsVoice?: string;
+  autoCheckListening?: boolean;
+  keepScreenOn?: boolean;
+  continueChapters?: boolean;
+  voiceReplies?: 'off' | 'brief' | 'full';
+  handsFree?: boolean;
+  reminders?: { on: boolean; reading: string | null; morning: string | null; evening: string | null; quietFrom: string; quietTo: string };
 }
 
 export interface Readthrough extends Base { name: string; start: string; finish?: string | null; created_at: number }
@@ -40,11 +49,17 @@ export interface Anchor { s: number; e: number; w?: [number, number] | null; q?:
 export interface Tag extends Base { name: string; code: string; desc: string; color: string; parent: string | null; order: number }
 export interface Tagging extends Base, Anchor { tag: string; created_at: number } // id = tag|s|e|w
 export interface Note extends Base, Anchor { text: string; tags: string[]; created_at: number }
+export interface PlanDay { date: string; ranges: [number, number][] }
+export interface Plan extends Base {
+  name: string; rt: string; passages: string[]; start: string; end: string;
+  skipWeekdays: number[]; skipDates: string[]; skipRanges: { from: string; to: string }[];
+  balance: 'verses' | 'words'; days: PlanDay[]; status: 'active' | 'paused' | 'done'; created_at: number;
+}
 export interface LinkItem extends Base, Anchor { url: string; title: string; comment: string; created_at: number }
 
-export const SYNC_TABLES = ['settings', 'readthroughs', 'verse_reads', 'reflections', 'highlights', 'layout_history', 'pane_state', 'recent_items', 'inbox_items', 'tags', 'taggings', 'notes', 'links'] as const;
+export const SYNC_TABLES = ['settings', 'readthroughs', 'verse_reads', 'reflections', 'highlights', 'layout_history', 'pane_state', 'recent_items', 'inbox_items', 'tags', 'taggings', 'notes', 'links', 'plans'] as const;
 export type SyncTable = (typeof SYNC_TABLES)[number];
-export const TRASH_TABLES: SyncTable[] = ['readthroughs', 'reflections', 'highlights', 'inbox_items', 'tags', 'notes', 'links'];
+export const TRASH_TABLES: SyncTable[] = ['readthroughs', 'reflections', 'highlights', 'inbox_items', 'tags', 'notes', 'links', 'plans'];
 
 class BBDB extends Dexie {
   settings!: Table<Settings, string>;
@@ -60,6 +75,7 @@ class BBDB extends Dexie {
   taggings!: Table<Tagging, string>;
   notes!: Table<Note, string>;
   links!: Table<LinkItem, string>;
+  plans!: Table<Plan, string>;
   meta!: Table<Meta, string>;
   constructor() {
     super('biblebetter');
@@ -81,6 +97,7 @@ class BBDB extends Dexie {
       notes: 'id, s, _dirty',
       links: 'id, s, _dirty',
     });
+    this.version(3).stores({ plans: 'id, _dirty' });
   }
 }
 
@@ -108,6 +125,12 @@ export const DEFAULT_SETTINGS: Omit<Settings, 'updated_at'> = {
   readLine: 1.75,
   compact: true,
   walkthroughDone: false,
+  ttsRate: 1,
+  autoCheckListening: false,
+  keepScreenOn: true,
+  continueChapters: true,
+  voiceReplies: 'brief',
+  handsFree: false,
 };
 
 export const todayStr = (d = new Date()) => {

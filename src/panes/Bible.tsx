@@ -8,7 +8,8 @@ import { setChecked, setHighlight, copyRef } from '../lib/actions';
 import { useTagIndex, useTaggings, useNotes, useLinks, overlaps, anchorOf, words } from '../lib/annot';
 import type { Anchor } from '../lib/db';
 import { usePaneState, addRecent } from '../lib/layout';
-import { ui, toast } from '../lib/store';
+import { ui, toast, useUI } from '../lib/store';
+import * as tts from '../lib/tts';
 import { Icon } from '../components/Icon';
 import { Ring, Modal } from '../components/ui';
 import { RefText } from '../components/RefText';
@@ -47,6 +48,11 @@ export default function Bible({ device, req, focused }: Props) {
       if (p.verse) setJump(vid(p.book, (p.chapter as number) || 1, p.verse as number));
     }
   }, [req, setSt]);
+
+  useEffect(() => {
+    ui.set({ bibleAt: st.book && st.chapter ? { book: st.book, chapter: st.chapter } : null });
+  }, [st.book, st.chapter]);
+  useEffect(() => () => ui.set({ bibleAt: null, bibleSel: [] }), []);
 
   const counts = useMemo(() => {
     const book = new Map<number, number>(), chap = new Map<string, number>();
@@ -135,7 +141,11 @@ interface ChapterProps {
 
 function Chapter({ book, chapter, rt, reads, focused, jump, clearJump, go }: ChapterProps) {
   const settings = useSettings();
-  const compact = settings.compact;
+  const view = settings.bibleView ?? (settings.compact ? 'compact' : 'text');
+  const compact = view === 'compact';
+  const player = useUI((x) => x.player);
+  const speaking = player?.verses[player.idx];
+  const prevSpoken = player && player.idx > 0 ? player.verses[player.idx - 1] : undefined;
   const kjv = useKjv();
   const hl = useHighlights();
   const verses = useMemo(() => chapterVerseIds(book, chapter), [book, chapter]);
@@ -172,6 +182,33 @@ function Chapter({ book, chapter, rt, reads, focused, jump, clearJump, go }: Cha
   const label = `${bk.name} ${chapter}`;
 
   useEffect(() => { void addRecent(label, 'bible', { book, chapter }); }, [label, book, chapter]);
+
+  useEffect(() => { ui.set({ bibleSel: [...sel] }); }, [sel]);
+  const selectReq = useUI((x) => x.selectReq);
+  useEffect(() => {
+    if (!selectReq) return;
+    const vs = selectReq.verses.filter((v) => vBook(v) === book && vChap(v) === chapter);
+    if (vs.length) { setSel(new Set(vs)); setAnchor(vs[0]); boxRef.current?.querySelector(`[data-v="${vs[0]}"]`)?.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
+    ui.set({ selectReq: null });
+  }, [selectReq, book, chapter]);
+  // keep the verse being read about a third of the way down, so the previous verse stays visible
+  useEffect(() => {
+    if (!speaking || !player?.follow || vBook(speaking) !== book || vChap(speaking) !== chapter) return;
+    const el = boxRef.current?.querySelector(`[data-v="${speaking}"]`) as HTMLElement | null;
+    const sc = boxRef.current?.closest('.pane-body') as HTMLElement | null;
+    if (!el || !sc) return;
+    const top = el.getBoundingClientRect().top - sc.getBoundingClientRect().top + sc.scrollTop - sc.clientHeight / 3;
+    sc.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+  }, [speaking, player?.follow, book, chapter]);
+  useEffect(() => {
+    const sc = boxRef.current?.closest('.pane-body') as HTMLElement | null;
+    if (!sc) return;
+    const off = () => { const p = ui.get().player; if (p?.playing && p.follow) ui.set({ player: { ...p, follow: false } }); };
+    sc.addEventListener('wheel', off, { passive: true });
+    sc.addEventListener('touchmove', off, { passive: true });
+    return () => { sc.removeEventListener('wheel', off); sc.removeEventListener('touchmove', off); };
+  }, []);
+  const speakCls = (v: number) => (v === speaking ? ' speaking' : v === prevSpoken ? ' spoken-prev' : '');
 
   const isOn = (v: number) => (pending?.set.has(v) ? pending.on : reads.has(v));
   const allOn = verses.every((v) => reads.has(v));
@@ -294,7 +331,7 @@ function Chapter({ book, chapter, rt, reads, focused, jump, clearJump, go }: Cha
       else if (e.key === 'ArrowUp') i = Math.max(0, i - cols);
       else if (e.key === ' ') { e.preventDefault(); const t = sel.size ? [...sel] : [verses[i]]; void setChecked(rt, t, !t.every((v) => reads.has(v))); return; }
       else if (e.key === 'Escape') { setSel(new Set()); setMenu(null); return; }
-      else if (e.key === 'r' || e.key === 'R') { if (!e.ctrlKey && !e.metaKey) ui.set({ reading: { book, chapter } }); return; }
+      else if (e.key === 'r' || e.key === 'R') { if (!e.ctrlKey && !e.metaKey) void saveSettings({ bibleView: view === 'read' ? 'text' : 'read' }); return; }
       else if ((e.key === 't' || e.key === 'T') && !e.ctrlKey && !e.metaKey) { e.preventDefault(); ui.set({ tagFor: anchorOf(sel.size ? [...sel] : [verses[i]]) }); return; }
       else if ((e.key === 'n' || e.key === 'N') && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); ui.set({ noteFor: { anchor: anchorOf(sel.size ? [...sel] : [verses[i]]) } }); return; }
       else if ((e.key === 'd' || e.key === 'D') && !e.ctrlKey && !e.metaKey) { e.preventDefault(); ui.set({ details: anchorOf(sel.size ? [...sel] : [verses[i]]) }); return; }
@@ -334,7 +371,7 @@ function Chapter({ book, chapter, rt, reads, focused, jump, clearJump, go }: Cha
   const onTextMouseUp = (v: number) => {
     const s = window.getSelection();
     if (!s || s.isCollapsed || !kjv) return;
-    const el = boxRef.current?.querySelector(`[data-v="${v}"] .txt`);
+    const el = boxRef.current?.querySelector(`[data-v="${v}"] .txt, [data-v="${v}"] .t`);
     if (!el || !el.contains(s.anchorNode) || !el.contains(s.focusNode)) return;
     const full = kjv[book - 1][chapter - 1][vVerse(v) - 1];
     const range = s.getRangeAt(0);
@@ -363,8 +400,13 @@ function Chapter({ book, chapter, rt, reads, focused, jump, clearJump, go }: Cha
         <button className="btn small" onClick={() => void setChecked(rt, verses, !allOn)} title="Check or uncheck the whole chapter">
           <Icon name="check" size={15} /> <span className="lbl">{allOn ? 'Uncheck chapter' : 'Check chapter'}</span><span className="lbl-short">{allOn ? 'Uncheck all' : 'All'}</span>
         </button>
-        <button className="icon-btn" title={compact ? 'Show verse text' : 'Compact view'} onClick={() => saveSettings({ compact: !compact })}><Icon name={compact ? 'list' : 'grid'} /></button>
-        <button className="icon-btn" title="Reading mode (R)" onClick={() => ui.set({ reading: { book, chapter } })}><Icon name="read" /></button>
+        <span className="viewseg" role="group" aria-label="View">
+          <button className={'icon-btn' + (view === 'compact' ? ' active' : '')} title="Checkboxes only" onClick={() => saveSettings({ bibleView: 'compact' })}><Icon name="grid" /></button>
+          <button className={'icon-btn' + (view === 'text' ? ' active' : '')} title="Verse by verse with text" onClick={() => saveSettings({ bibleView: 'text' })}><Icon name="list" /></button>
+          <button className={'icon-btn' + (view === 'read' ? ' active' : '')} title="Reading view (R)" onClick={() => saveSettings({ bibleView: 'read' })}><Icon name="read" /></button>
+        </span>
+        <button className="icon-btn" title="Read aloud" onClick={() => { const start = selList.length ? vVerse(selList[0]) : 1; if (selList.length > 1) void tts.playVerses(selList, formatVerses(selList), { rt }); else void tts.playChapter(book, chapter, start, rt); }}><Icon name="volume" /></button>
+        <button className="icon-btn" title="Full-screen reading" onClick={() => ui.set({ reading: { book, chapter } })}><Icon name="expand" /></button>
         <button className="icon-btn" title="Reflect on this chapter" onClick={() => ui.set({ reflectFor: { chapter: chapKey(book, chapter) } })}><Icon name="reflect" /></button>
         <a className="icon-btn" title={`Open chapter in ${settings.linkVersion} on BibleGateway`} href={bgUrl(label, settings.linkVersion)} target="_blank" rel="noreferrer"><Icon name="link" /></a>
       </div>
@@ -373,7 +415,7 @@ function Chapter({ book, chapter, rt, reads, focused, jump, clearJump, go }: Cha
         <div className="verse-grid" role="grid" aria-label={`${label} verses`}>
           {verses.map((v, i) => (
             <div key={v} data-v={v} role="checkbox" aria-checked={isOn(v)} aria-label={verseRef(v)}
-              className={'vchip' + (isOn(v) ? ' on' : '') + (sel.has(v) ? ' sel' : '') + (focused && i === focusIdx ? ' focus' : '')}
+              className={'vchip' + (isOn(v) ? ' on' : '') + (sel.has(v) ? ' sel' : '') + (focused && i === focusIdx ? ' focus' : '') + speakCls(v)}
               style={swipeStyle(v)} {...common(v, 'box')}
               onPointerEnter={() => enterDrag(v)}
               onContextMenu={(e) => onContext(e, v)}>
@@ -383,10 +425,24 @@ function Chapter({ book, chapter, rt, reads, focused, jump, clearJump, go }: Cha
             </div>
           ))}
         </div>
+      ) : view === 'read' ? (
+        <p className="readview" style={{ fontFamily: settings.readFont === 'serif' ? 'var(--serif)' : 'var(--font)', fontSize: settings.readSize, lineHeight: settings.readLine }}>
+          {verses.map((v, i) => (
+            <span key={v} data-v={v} className={'rv' + (sel.has(v) ? ' sel' : '') + (focused && i === focusIdx ? ' focus' : '') + speakCls(v)} onContextMenu={(e) => onContext(e, v)}>
+              <sup className={isOn(v) ? 'on' : ''} role="checkbox" aria-checked={isOn(v)} aria-label={`Read ${verseRef(v)}`} {...common(v, 'box')} onPointerEnter={() => enterDrag(v)}>{vVerse(v)}</sup>
+              <span className={'t' + (marks.get(v) ? ' marked' : '')} style={{ background: hlCss(hl.get(v)) }} {...common(v, 'text')}
+                onMouseUp={() => onTextMouseUp(v)}
+                onClick={(e) => { if (window.getSelection()?.isCollapsed === false) return; if ((e.nativeEvent as PointerEvent).pointerType === 'mouse' && !e.shiftKey && !e.ctrlKey && !e.metaKey) toggleSel(v, false); }}>
+                {renderText(v)}
+              </span>
+              {marks.get(v) && <Marks v={v} />}{' '}
+            </span>
+          ))}
+        </p>
       ) : (
         <div className="verse-list">
           {verses.map((v, i) => (
-            <div key={v} data-v={v} className={'vrow' + (sel.has(v) ? ' sel' : '') + (focused && i === focusIdx ? ' focus' : '')} style={swipeStyle(v)}
+            <div key={v} data-v={v} className={'vrow' + (sel.has(v) ? ' sel' : '') + (focused && i === focusIdx ? ' focus' : '') + speakCls(v)} style={swipeStyle(v)}
               onContextMenu={(e) => onContext(e, v)}>
               <div className={'box' + (isOn(v) ? ' on' : '')} role="checkbox" aria-checked={isOn(v)} aria-label={`Read ${verseRef(v)}`}
                 {...common(v, 'box')} onPointerEnter={() => enterDrag(v)}><Icon name="check" size={16} /></div>
@@ -411,6 +467,7 @@ function Chapter({ book, chapter, rt, reads, focused, jump, clearJump, go }: Cha
           <button className="btn small" onClick={() => ui.set({ tagFor: anchorOf(selList) })} title="Tag (T)"><Icon name="tag" size={14} /> Tag</button>
           <button className="btn small" onClick={() => ui.set({ noteFor: { anchor: anchorOf(selList) } })} title="Note (N)"><Icon name="pen" size={14} /> Note</button>
           <button className="btn small" onClick={() => ui.set({ details: anchorOf(selList) })} title="Details (D)"><Icon name="more" size={14} /> Details</button>
+          <button className="btn small" onClick={() => void tts.playVerses(selList, formatVerses(selList), { rt })} title="Read aloud"><Icon name="volume" size={14} /> Listen</button>
           <div className="swatches">
             {HL_COLORS.map((c) => <button key={c.key} className="swatch" style={{ background: c.css }} title={`Highlight ${c.key}`} onClick={() => void setHighlight(selList, c.key)} />)}
             <button className="swatch none" title="Remove highlight" onClick={() => void setHighlight(selList, null)} />
@@ -481,7 +538,9 @@ function VerseActions({ verses, rt, reads, link, close, book, chapter }: { verse
       </div></div>
       <button className="menu-item" onClick={run(() => copyRef(verses))}><Icon name="copy" /> Copy reference</button>
       <a className="menu-item" href={link} target="_blank" rel="noreferrer" onClick={close}><Icon name="link" /> Open in {settings.linkVersion}</a>
-      <button className="menu-item" onClick={run(() => ui.set({ reading: { book, chapter } }))}><Icon name="read" /> Reading mode</button>
+      <button className="menu-item" onClick={run(() => tts.playVerses(verses, formatVerses(verses), { rt }))}><Icon name="volume" /> Read aloud</button>
+      <button className="menu-item" onClick={run(() => tts.playChapter(book, chapter, vVerse(verses[0]), rt))}><Icon name="volume" /> Read aloud from here</button>
+      <button className="menu-item" onClick={run(() => ui.set({ reading: { book, chapter } }))}><Icon name="expand" /> Full-screen reading</button>
       <button className="menu-item" onClick={run(() => ui.set({ reflectFor: { chapter: chapKey(book, chapter) } }))}><Icon name="reflect" /> Reflect</button>
       <div className="menu-sep" />
       <button className="menu-item" onClick={run(() => ui.set({ tagFor: anchorOf(verses) }))}><Icon name="tag" /> Tag <span className="hint">T</span></button>

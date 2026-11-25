@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from 'react';
 import type { Anchor } from './db';
+import type { PlayerState } from './tts';
 
 /** Minimal global UI store (not persisted). */
 export type SyncStatus = 'local' | 'signed-out' | 'syncing' | 'synced' | 'offline' | 'error';
@@ -19,10 +20,15 @@ export interface UIState {
   reading: { book: number; chapter: number } | null;
   reflectFor: { chapter?: string } | null;
   tagFor: Anchor | null;
-  noteFor: { anchor: Anchor; id?: string; text?: string } | null;
+  noteFor: { anchor: Anchor; id?: string; text?: string; voice?: boolean } | null;
   details: Anchor | null;
   preview: { s: number; e: number; label: string } | null;
   share: { title: string; text: string; url: string } | null;
+  player: PlayerState | null;
+  bibleAt: { book: number; chapter: number } | null;
+  bibleSel: number[];
+  selectReq: { n: number; verses: number[] } | null;
+  voice: { listening: boolean; interim: string; heard: string; reply: string; choices: { label: string; run: () => void }[] } | null;
 }
 
 let state: UIState = {
@@ -42,6 +48,11 @@ let state: UIState = {
   details: null,
   preview: null,
   share: null,
+  player: null,
+  bibleAt: null,
+  bibleSel: [],
+  selectReq: null,
+  voice: null,
 };
 const subs = new Set<() => void>();
 

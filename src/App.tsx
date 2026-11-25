@@ -22,6 +22,9 @@ import { Details, NoteEditor } from './panes/Details';
 import { TagPicker } from './components/TagPicker';
 import { RefPreview } from './components/RefText';
 import { ShareSheet } from './components/Share';
+import Plans from './panes/Plans';
+import { VoiceOverlay, startVoice } from './components/Voice';
+import { PlayerBar } from './components/Player';
 
 const BASE = import.meta.env.BASE_URL;
 
@@ -193,10 +196,13 @@ function Shell() {
       if (mod && e.key === '2') { e.preventDefault(); ui.set({ focusedSlot: 'right' }); return; }
       if (e.altKey && e.key.toLowerCase() === 'n') { e.preventDefault(); ui.set({ capture: true }); return; }
       if (mod && e.shiftKey && e.key.toLowerCase() === 'f') { e.preventDefault(); navigate('search'); return; }
+      if ((e.key === 'v' || e.key === 'V') && !mod && !e.altKey) { e.preventDefault(); startVoice(); return; }
       if (e.key === '?' && !mod) { ui.set({ cheat: true }); }
     };
     window.addEventListener('keydown', f);
-    return () => window.removeEventListener('keydown', f);
+    const sw = () => void layoutRef.current.swap();
+    document.addEventListener('bb-swap', sw);
+    return () => { window.removeEventListener('keydown', f); document.removeEventListener('bb-swap', sw); };
   }, []);
 
   const signOut = async () => {
@@ -212,6 +218,7 @@ function Shell() {
       case 'today': return <div className="pane-body"><Today device={device} /></div>;
       case 'bible': return <Bible device={device} req={req} focused={focused} />;
       case 'readthroughs': return <div className="pane-body"><Readthroughs req={req} /></div>;
+      case 'plans': return <div className="pane-body"><Plans device={device} req={req} /></div>;
       case 'notes': return <div className="pane-body"><Notes device={device} req={req} /></div>;
       case 'search': return <div className="pane-body"><Search device={device} req={req} /></div>;
       case 'inbox': return <div className="pane-body"><Inbox /></div>;
@@ -238,6 +245,8 @@ function Shell() {
       <Details phone={!dual} />
       <RefPreview />
       <ShareSheet phone={!dual} />
+      <PlayerBar />
+      <VoiceOverlay />
       <Reading />
       <MoreSheet layout={layout} />
       {settingsRow && !settingsRow.walkthroughDone && <Walkthrough onDone={() => saveSettings({ walkthroughDone: true })} />}
@@ -251,6 +260,7 @@ function Shell() {
         <div className="brand"><img src={BASE + 'icon-192.png'} alt="" />BibleBetter</div>
         <button className="searchbox" onClick={() => ui.set({ palette: true })}><Icon name="search" size={16} /> Jump to a passage or command <span className="spacer" /><kbd>Ctrl K</kbd></button>
         <span className="spacer" />
+        <button className="icon-btn" title="Voice command (V)" onClick={() => startVoice()}><Icon name="mic" /></button>
         <button className="icon-btn" title="Quick capture (Alt+N)" onClick={() => ui.set({ capture: true })}><Icon name="plus" /></button>
         <button className="icon-btn" title="Undo layout change (Ctrl+Shift+Z)" onClick={() => void layout.undo()} disabled={!layout.canUndo}><Icon name="history" /></button>
         <RecentPairs layout={layout} />
@@ -281,10 +291,11 @@ function Shell() {
       <main className="phone-pane" {...edgeSwipe(() => ui.set({ phoneSlot: phoneSlot === 'left' ? 'right' : 'left' }), false)}>
         <section className="pane focused">{render(visible, phoneSlot)}</section>
       </main>
-      <nav className="bottombar">
+      <nav className="bottombar six">
         <button className={visible === 'today' ? 'on' : ''} onClick={() => navigate('today')}><Icon name="sun" size={22} />Today</button>
         <button className={visible === 'bible' ? 'on' : ''} onClick={() => navigate('bible')}><Icon name="book" size={22} />Bible</button>
         <button className="fab" aria-label="Quick capture" onClick={() => ui.set({ capture: true })}><Icon name="plus" size={26} /></button>
+        <button onClick={() => startVoice()}><Icon name="mic" size={22} />Voice</button>
         <button className={visible === 'search' ? 'on' : ''} onClick={() => navigate('search')}><Icon name="search" size={22} />Search</button>
         <button onClick={() => ui.set({ more: true })}><Icon name="more" size={22} />More</button>
       </nav>

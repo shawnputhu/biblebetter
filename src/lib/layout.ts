@@ -11,7 +11,7 @@ export const FUNCTIONS: FnDef[] = [
   { key: 'bible', name: 'Bible', phase: 1, icon: 'book' },
   { key: 'readthroughs', name: 'Read-throughs', phase: 1, icon: 'layers' },
   { key: 'notes', name: 'Notes & Tags', phase: 1, icon: 'tag' },
-  { key: 'plans', name: 'Plans & Calendar', phase: 3, icon: 'calendar' },
+  { key: 'plans', name: 'Plans & Calendar', phase: 1, icon: 'calendar' },
   { key: 'prayer', name: 'Prayer & People', phase: 4, icon: 'heart' },
   { key: 'idealme', name: 'Ideal Me', phase: 5, icon: 'star' },
   { key: 'stats', name: 'Statistics', phase: 6, icon: 'chart' },

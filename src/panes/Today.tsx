@@ -9,6 +9,11 @@ import { navigate, ui, useUI } from '../lib/store';
 import { downloadBackup, downloadDue } from '../lib/backup';
 import { Icon } from '../components/Icon';
 import { Modal } from '../components/ui';
+import { MicButton } from '../components/Voice';
+import * as tts from '../lib/tts';
+import { briefingText } from '../lib/commands';
+import { usePlans, planProgress, dayVerses, dayLabel } from '../lib/plans';
+import type { Plan } from '../lib/db';
 
 export function useMode() {
   const s = useSettings();
@@ -51,6 +56,7 @@ export default function Today({ device }: { device: Device }) {
           <h2>{mode === 'morning' ? 'Good morning' : 'Evening review'}</h2>
         </div>
         <span className="spacer" />
+        <button className="btn small" onClick={async () => tts.playText(await briefingText(), 'Briefing')} title="Read a short briefing aloud"><Icon name="volume" size={15} /> Briefing</button>
         <button className="btn small" onClick={toggle} title="Switch between morning summary and evening review"><Icon name={mode === 'morning' ? 'moon' : 'sun'} size={15} /> {mode === 'morning' ? 'Evening' : 'Morning'}</button>
       </div>
 
@@ -81,15 +87,43 @@ export default function Today({ device }: { device: Device }) {
           <div className="muted small">{todays.length} verse{todays.length === 1 ? '' : 's'}</div>
         </div>
 
+        <TodayPlans />
         <ReflectionCard rtId={rt?.id} />
       </div>
 
       <h3 style={{ margin: '22px 0 10px' }}>{mode === 'morning' ? 'Coming to your morning summary' : 'Coming to your evening review'}</h3>
       <div className="grid-cards">
-        <div className="soon">Today’s plan reading · Phase 3</div>
         <div className="soon">Prayer slots and requests · Phase 4</div>
         <div className="soon">Ideal Me, 3 goals, Memorable today · Phase 5</div>
       </div>
+    </div>
+  );
+}
+
+function TodayPlans() {
+  const plans = usePlans().filter((p) => p.status === 'active');
+  if (!plans.length) return (
+    <div className="card stack"><h3>Reading plan</h3><div className="muted small">No active plan.</div>
+      <button className="btn" onClick={() => navigate('plans', { create: true })}><Icon name="calendar" size={16} /> Make a reading plan</button></div>
+  );
+  return <>{plans.map((p) => <TodayPlan key={p.id} p={p} />)}</>;
+}
+function TodayPlan({ p }: { p: Plan }) {
+  const reads = useReadMap(p.rt);
+  const pr = useMemo(() => planProgress(p, reads), [p, reads]);
+  const d = pr.today;
+  const vs = d ? dayVerses(d) : [];
+  const left = vs.filter((v) => !reads.has(v));
+  return (
+    <div className="card stack">
+      <div className="row"><h3 style={{ cursor: 'pointer' }} onClick={() => navigate('plans', { plan: p.id })}>{p.name}</h3><span className="spacer" /><span className="pill mint">{pr.pct.toFixed(0)}%</span></div>
+      {d && vs.length ? <div>Today: <b>{dayLabel(d)}</b></div> : <div className="muted">No reading scheduled today.</div>}
+      {vs.length > 0 && <div className="muted small">{left.length ? `${left.length} of ${vs.length} verses to go` : 'Done for today ✓'}</div>}
+      {pr.missed > 0 && <button className="btn small" onClick={() => navigate('plans', { plan: p.id })}>{pr.missed} day{pr.missed > 1 ? 's' : ''} behind — catch up</button>}
+      {left.length > 0 && <div className="row">
+        <button className="btn primary" onClick={() => navigate('bible', { book: vBook(left[0]), chapter: vChap(left[0]), verse: vVerse(left[0]) })}><Icon name="book" size={16} /> Read now</button>
+        <button className="btn" onClick={() => tts.playVerses(left, dayLabel(d!), { rt: p.rt })}><Icon name="volume" size={16} /> Read aloud</button>
+      </div>}
     </div>
   );
 }
@@ -108,6 +142,8 @@ function ReflectionCard({ rtId }: { rtId?: string }) {
     <div className="card stack">
       <h3>Today’s reflection</h3>
       <textarea value={value} onChange={(e) => setText(e.target.value)} placeholder="What stood out? What is God showing you?" rows={4} />
+      <div className="row"><MicButton onText={(t) => setText((x) => ((x ?? value) ? (x ?? value).replace(/\s*$/, ' ') : '') + t)} label="Dictate your reflection" />
+        <span className="spacer" />{value.trim() && <button className="icon-btn" title="Read aloud" onClick={() => tts.playText([value], 'Reflection')}><Icon name="volume" size={16} /></button>}</div>
       <div className="muted small">{alive(row) && row.chapters.length ? `On ${formatChapters(row.chapters)} · saved` : 'Saves automatically'}</div>
     </div>
   );
@@ -143,6 +179,7 @@ export function ReflectModal() {
         <div className="row"><h3>Reflection · {today}</h3><span className="spacer" /><span className="pill">{rt.name}</span></div>
         {ch && <div className="muted small">Adding {BOOKS[ch[0] - 1].name} {ch[1]} to today’s reflection</div>}
         <textarea autoFocus rows={8} value={value} onChange={(e) => setText(e.target.value)} placeholder="What stood out? What is God showing you?" />
+        <MicButton onText={(t) => setText((x) => ((x ?? value) ? (x ?? value).replace(/\s*$/, ' ') : '') + t)} label="Dictate your reflection" />
         <div className="row"><span className="spacer" /><button className="btn primary" onClick={close}>Done</button></div>
       </div>
     </Modal>

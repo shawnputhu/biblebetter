@@ -10,6 +10,9 @@ import { Modal } from '../components/ui';
 import { Icon } from '../components/Icon';
 import { TagChip } from '../components/TagPicker';
 import { RefText, RefLink, openRef } from '../components/RefText';
+import { MicButton } from '../components/Voice';
+import * as tts from '../lib/tts';
+import { db as dbx } from '../lib/db';
 
 /** Drawer (PC) / sheet (phone) with everything attached to a passage. */
 export function Details({ phone }: { phone: boolean }) {
@@ -113,6 +116,7 @@ function NoteView({ n }: { n: Note }) {
   return (
     <div className="note">
       <div className="row small muted">{anchorLabel(n)}<span className="spacer" />
+        <button className="icon-btn" title="Read aloud" onClick={() => tts.playText([`${anchorLabel(n)}. ${n.text}`], 'Note')}><Icon name="volume" size={15} /></button>
         <button className="icon-btn" title="Edit" onClick={() => ui.set({ noteFor: { anchor: n, id: n.id, text: n.text } })}><Icon name="pen" size={15} /></button>
         <button className="icon-btn" title="Move to Trash" onClick={() => mutate('Note moved to Trash', (w) => w.trash('notes', n.id))}><Icon name="trash" size={15} /></button>
       </div>
@@ -143,7 +147,8 @@ function CrossRefs({ v }: { v: number }) {
   useEffect(() => { setRefs(null); void crossRefs(v).then(setRefs); }, [v]);
   return (
     <section>
-      <h4>Cross-references <span className="muted small" style={{ fontWeight: 400 }}>· Treasury of Scripture Knowledge</span></h4>
+      <h4 className="row">Cross-references <span className="muted small" style={{ fontWeight: 400 }}>· Treasury of Scripture Knowledge</span><span className="spacer" />
+        {!!refs?.length && <button className="icon-btn" title="Read the cross-references aloud" onClick={() => void readXrefs(refs)}><Icon name="volume" size={15} /></button>}</h4>
       {refs === null && <span className="muted small">Loading…</span>}
       {refs?.length === 0 && <span className="muted small">None for this verse.</span>}
       {refs?.map((g, i) => (
@@ -161,21 +166,41 @@ function CrossRefs({ v }: { v: number }) {
   );
 }
 
+async function readXrefs(refs: { word: string; refs: { s: number; e: number }[] }[]) {
+  const { loadKjv } = await import('../lib/hooks');
+  const kjv = await loadKjv();
+  const items = refs.flatMap((g) => g.refs.slice(0, 4).map((r) => `${anchorLabel({ s: r.s, e: r.e })}. ${anchorText(kjv, { s: r.s, e: r.e }, 3)}`)).slice(0, 25);
+  tts.playText(items, 'Cross-references');
+}
+
 /** Note editor modal (global). */
 export function NoteEditor() {
   const n = useUI((s) => s.noteFor);
   const [text, setText] = useState('');
-  useEffect(() => { setText(n?.text ?? ''); }, [n]);
+  const [mic, setMic] = useState(false);
+  useEffect(() => {
+    setText(n?.text ?? ''); setMic(false);
+    if (n?.voice) void (async () => {
+      const st = await dbx.settings.get('main');
+      if ((st?.voiceReplies ?? 'brief') !== 'off' || st?.handsFree) await tts.say(n.text ? 'Keep talking, or say save.' : 'Go ahead. Say save when you’re done.');
+      setMic(true);
+    })();
+  }, [n]);
   if (!n) return null;
   const close = () => ui.set({ noteFor: null });
   const save = async () => { if (text.trim()) await saveNote({ ...n.anchor, id: n.id, text }); close(); };
+  // dictation callbacks capture state late, so read the latest text from the box
+  const saveWith = async () => { const t = (document.querySelector('.note-editor-text') as HTMLTextAreaElement | null)?.value ?? text; if (t.trim()) { await saveNote({ ...n.anchor, id: n.id, text: t }); const { reply } = await import('../lib/commands'); void reply(`Note saved on ${anchorLabel(n.anchor)}.`, 'Note saved', { undo: true }); } close(); };
   return (
     <Modal onClose={close}>
       <div className="modal stack" style={{ padding: 18 }}>
         <h3>{n.id ? 'Edit note' : 'New note'} · {anchorLabel(n.anchor)}</h3>
-        <textarea autoFocus rows={7} value={text} onChange={(e) => setText(e.target.value)} placeholder="Your note… references like Rom 5:8 become links."
+        <textarea className="note-editor-text" autoFocus rows={7} value={text} onChange={(e) => setText(e.target.value)} placeholder="Your note… references like Rom 5:8 become links."
           onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) void save(); }} />
-        <div className="row"><span className="muted small">Ctrl+Enter saves</span><span className="spacer" /><button className="btn" onClick={close}>Cancel</button><button className="btn primary" onClick={save}>Save</button></div>
+        <div className="row">
+          {mic ? <MicButton key="auto" autoStart onText={(t) => setText((x) => (x ? x.replace(/\s*$/, ' ') : '') + t)} onCommand={(c) => (c === 'save' ? void saveWith() : close())} />
+            : <MicButton onText={(t) => setText((x) => (x ? x.replace(/\s*$/, ' ') : '') + t)} onCommand={(c) => (c === 'save' ? void saveWith() : close())} />}
+          <span className="muted small">Speak, then say “save” · Ctrl+Enter saves</span><span className="spacer" /><button className="btn" onClick={close}>Cancel</button><button className="btn primary" onClick={save}>Save</button></div>
       </div>
     </Modal>
   );

@@ -7,6 +7,7 @@ import { addInbox } from '../lib/actions';
 import { saveSettings, useSettings, useActiveRt } from '../lib/hooks';
 import { downloadBackup } from '../lib/backup';
 import { undoLast } from '../lib/write';
+import { MicButton } from './Voice';
 
 export function Modal({ onClose, children, bottom }: { onClose: () => void; children: ReactNode; bottom?: boolean }) {
   useEffect(() => {
@@ -166,7 +167,7 @@ export function Capture({ phone }: { phone: boolean }) {
       <h3>Quick capture</h3>
       <textarea autoFocus value={t} onChange={(e) => setT(e.target.value)} placeholder="A thought, a verse to look at later, a link…"
         onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) void save(); }} />
-      <div className="row"><span className="muted small">Saved to your Inbox. Filing into notes comes in Phase 2.</span><span className="spacer" />
+      <div className="row"><MicButton onText={(x) => setT((y) => (y ? y.replace(/\s*$/, ' ') : '') + x)} onCommand={(c) => (c === 'save' ? void save() : close())} /><span className="muted small">Saved to your Inbox.</span><span className="spacer" />
         <button className="btn" onClick={close}>Cancel</button><button className="btn primary" onClick={save}>Save</button></div>
     </div>
   );
